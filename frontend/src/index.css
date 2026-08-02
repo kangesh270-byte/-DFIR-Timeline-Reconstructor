@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #020617;
+    color: #f8fafc;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+.cyber-border {
+  border: 1px solid rgba(14, 165, 233, 0.3);
+}
+
+.glass-card {
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(51, 65, 85, 0.5);
+}
+
+.neo-blue {
+  color: #0ea5e9;
+  text-shadow: 0 0 8px rgba(14, 165, 233, 0.5);
+}
+
+.timeline-track {
+  background: repeating-linear-gradient(90deg, transparent, transparent 49px, rgba(51, 65, 85, 0.25) 50px);
+}
+
+.active-stage {
+  background: linear-gradient(to right, #0ea5e9, #2dd4bf);
+  box-shadow: 0 0 15px rgba(14, 165, 233, 0.4);
+}
+
+/* Custom sleek scrollbars for dark cyber UI */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #020617;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 4px;
+  border: 1px solid rgba(14, 165, 233, 0.2);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #0ea5e9;
+}

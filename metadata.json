@@ -1,0 +1,6 @@
+{
+  "name": "DFIR Timeline Reconstructor",
+  "description": "Interactive educational cyber range for incident response training, attack timeline reconstruction, MITRE ATT&CK tagging, and forensic analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
