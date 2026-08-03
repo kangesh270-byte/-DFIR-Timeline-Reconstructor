@@ -22,36 +22,75 @@ export interface ParsedEvidenceRecord {
 
 export interface ParsedEvidenceUpload {
   records: ParsedEvidenceRecord[];
+  warnings: string[];
   errors: string[];
 }
 
-const REQUIRED_FIELDS = ['timestamp', 'title', 'description', 'severity', 'source'];
-const OPTIONAL_FIELDS = ['user', 'host', 'processName', 'fileName', 'fileHash', 'registryKey', 'ipAddress', 'domain', 'url', 'macAddress'];
+const DEFAULT_TITLE = 'Unknown Event';
+const DEFAULT_SEVERITY = 'Medium';
+const DEFAULT_SOURCE = 'Unknown';
+const DEFAULT_DESCRIPTION = 'No description provided';
 
 function normalizeFieldName(field: string): string {
   const trimmed = field.replace(/^\uFEFF/, '').trim();
-  const lowered = trimmed.toLowerCase();
+  const lowered = trimmed.toLowerCase().replace(/[\s-]+/g, '_');
 
   const aliases: Record<string, string> = {
     timestamp: 'timestamp',
+    time: 'timestamp',
+    date: 'timestamp',
+    datetime: 'timestamp',
+    event_time: 'timestamp',
+    log_time: 'timestamp',
+    eventtime: 'timestamp',
     title: 'title',
+    event: 'title',
+    event_type: 'title',
+    eventtype: 'title',
+    activity: 'title',
+    event_name: 'title',
+    eventname: 'title',
+    name: 'title',
     description: 'description',
+    details: 'description',
+    summary: 'description',
+    message: 'description',
+    log: 'description',
+    note: 'description',
     severity: 'severity',
+    level: 'severity',
+    priority: 'severity',
+    risk: 'severity',
     source: 'source',
+    source_name: 'source',
+    log_source: 'source',
+    system: 'source',
+    provider: 'source',
+    device: 'source',
+    user: 'user',
+    username: 'user',
+    user_name: 'user',
+    host: 'host',
+    hostname: 'host',
+    computer: 'host',
     process_name: 'processName',
     processname: 'processName',
+    process: 'processName',
     file_name: 'fileName',
     filename: 'fileName',
     file_hash: 'fileHash',
     filehash: 'fileHash',
+    hash: 'fileHash',
+    sha256: 'fileHash',
+    md5: 'fileHash',
     registry_key: 'registryKey',
     registrykey: 'registryKey',
-    user_name: 'user',
-    username: 'user',
-    user: 'user',
-    host: 'host',
+    registry: 'registryKey',
     ip_address: 'ipAddress',
     ipaddress: 'ipAddress',
+    src_ip: 'ipAddress',
+    dest_ip: 'ipAddress',
+    ip: 'ipAddress',
     domain: 'domain',
     url: 'url',
     mac_address: 'macAddress',
@@ -75,25 +114,55 @@ function normalizeValue(value: unknown): string | undefined {
   return String(value);
 }
 
-function normalizeRecord(record: Record<string, unknown>, headers: string[]): ParsedEvidenceRecord {
-  const normalizedRecord: ParsedEvidenceRecord = {};
+function normalizeRecord(rawRow: Record<string, unknown>): ParsedEvidenceRecord {
+  const normalizedRow: ParsedEvidenceRecord = {};
 
-  headers.forEach((header) => {
-    const normalizedKey = normalizeFieldName(header);
-    const normalizedValue = normalizeValue(record[header]);
-    if (normalizedValue !== undefined) {
-      normalizedRecord[normalizedKey] = normalizedValue;
+  Object.entries(rawRow).forEach(([key, value]) => {
+    const normalizedKey = normalizeFieldName(key);
+    const normalizedValue = normalizeValue(value);
+
+    if (normalizedKey && normalizedValue !== undefined) {
+      normalizedRow[normalizedKey] = normalizedValue;
     }
   });
 
-  return normalizedRecord;
+  return normalizedRow;
 }
 
-function getMissingRequiredFields(record: ParsedEvidenceRecord): string[] {
-  return REQUIRED_FIELDS.filter((field) => {
-    const value = record[field];
-    return value === undefined || String(value).trim() === '';
-  });
+function applyDefaults(row: ParsedEvidenceRecord, warnings: string[], rowNumber: number): void {
+  if (!row.timestamp || !String(row.timestamp).trim()) {
+    throw new Error(`Row ${rowNumber}: Missing required field timestamp.`);
+  }
+
+  if (!row.title || !String(row.title).trim()) {
+    row.title = DEFAULT_TITLE;
+    warnings.push(`Row ${rowNumber}: Missing title; using "${DEFAULT_TITLE}".`);
+  } else {
+    row.title = String(row.title).trim();
+  }
+
+  if (!row.description || !String(row.description).trim()) {
+    row.description = DEFAULT_DESCRIPTION;
+    warnings.push(`Row ${rowNumber}: Missing description; using "${DEFAULT_DESCRIPTION}".`);
+  } else {
+    row.description = String(row.description).trim();
+  }
+
+  if (!row.severity || !String(row.severity).trim()) {
+    row.severity = DEFAULT_SEVERITY;
+    warnings.push(`Row ${rowNumber}: Missing severity; using "${DEFAULT_SEVERITY}".`);
+  } else {
+    row.severity = String(row.severity).trim();
+  }
+
+  if (!row.source || !String(row.source).trim()) {
+    row.source = DEFAULT_SOURCE;
+    warnings.push(`Row ${rowNumber}: Missing source; using "${DEFAULT_SOURCE}".`);
+  } else {
+    row.source = String(row.source).trim();
+  }
+
+  row.timestamp = String(row.timestamp).trim();
 }
 
 export async function parseEvidenceUpload(file: File): Promise<ParsedEvidenceUpload> {
@@ -103,27 +172,34 @@ export async function parseEvidenceUpload(file: File): Promise<ParsedEvidenceUpl
   if (extension === 'json') {
     try {
       const parsed = JSON.parse(text);
-      if (Array.isArray(parsed)) {
-        return {
-          records: parsed.map((item) => item as ParsedEvidenceRecord),
-          errors: [],
-        };
-      }
+      const rows = Array.isArray(parsed) ? parsed : parsed && typeof parsed === 'object' ? [parsed] : [];
+      const warnings: string[] = [];
+      const records: ParsedEvidenceRecord[] = [];
 
-      if (parsed && typeof parsed === 'object') {
-        return {
-          records: [parsed as ParsedEvidenceRecord],
-          errors: [],
-        };
-      }
+      rows.forEach((item, index) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          warnings.push(`JSON row ${index + 1}: Ignored invalid entry.`);
+          return;
+        }
+
+        const normalizedRow = normalizeRecord(item as Record<string, unknown>);
+        try {
+          applyDefaults(normalizedRow, warnings, index + 1);
+          records.push(normalizedRow);
+        } catch (error) {
+          warnings.push((error as Error).message);
+        }
+      });
 
       return {
-        records: [],
-        errors: ['JSON content must be an object or an array of objects.'],
+        records,
+        warnings,
+        errors: [],
       };
     } catch (error) {
       return {
         records: [],
+        warnings: [],
         errors: [`Invalid JSON: ${error instanceof Error ? error.message : 'Unknown error'}`],
       };
     }
@@ -132,6 +208,7 @@ export async function parseEvidenceUpload(file: File): Promise<ParsedEvidenceUpl
   if (extension !== 'csv') {
     return {
       records: [],
+      warnings: [],
       errors: ['Unsupported file type. Only CSV and JSON are supported.'],
     };
   }
@@ -142,51 +219,39 @@ export async function parseEvidenceUpload(file: File): Promise<ParsedEvidenceUpl
       skipEmptyLines: true,
       transformHeader: (header) => normalizeFieldName(header),
       complete: (results) => {
-        const rawData = results.data ?? [];
-        const firstParsedRow = rawData[0] ?? {};
-        const rawHeaders = Object.keys(firstParsedRow);
-
-        console.log('Raw CSV headers:', rawHeaders);
-        console.log('Normalized headers:', rawHeaders.map((header) => normalizeFieldName(header)));
-        console.log('First parsed row:', firstParsedRow);
-        console.log('Object.keys(firstParsedRow):', Object.keys(firstParsedRow));
-
-        const normalizedRecords: ParsedEvidenceRecord[] = [];
+        const rowData = results.data ?? [];
+        const validRecords: ParsedEvidenceRecord[] = [];
+        const warnings: string[] = [];
         const errors: string[] = [];
 
-        rawData.forEach((row, index) => {
-          const normalizedRow = Object.fromEntries(
-            Object.entries(row).map(([key, value]) => [normalizeFieldName(key), normalizeValue(value)])
-          );
-
-          const normalizedRecord = normalizeRecord(normalizedRow as Record<string, unknown>, Object.keys(normalizedRow));
-          const missingFields = getMissingRequiredFields(normalizedRecord);
-
-          console.log('parsedRows:', rawData);
-          console.log('parsedRows[0]:', rawData[0]);
-          console.log('Object.keys(parsedRows[0]):', Object.keys(rawData[0] ?? {}));
-
-          if (missingFields.length > 0) {
-            console.log('Validation failed for row:', row);
-            console.log('Parsed object:', normalizedRecord);
-            console.log('Missing required fields:', missingFields);
-            errors.push(`Row ${index + 2}: Missing required fields: ${missingFields.join(', ')}`);
+        rowData.forEach((rawRow, index) => {
+          const row = rawRow ?? {};
+          if (!Object.keys(row).length) {
             return;
           }
 
-          normalizedRecords.push(normalizedRecord);
+          const normalizedRow = normalizeRecord(row as Record<string, unknown>);
+
+          try {
+            applyDefaults(normalizedRow, warnings, index + 2);
+            validRecords.push(normalizedRow);
+          } catch (error) {
+            warnings.push((error as Error).message);
+          }
         });
 
-        if (errors.length > 0) {
-          resolve({ records: [], errors });
-          return;
+        if (results.errors.length > 0) {
+          results.errors.forEach((issue) => {
+            if (issue.type !== 'FieldMismatch') {
+              errors.push(`CSV parse warning: ${issue.message}`);
+            }
+          });
         }
 
-        console.log('Validated records:', normalizedRecords);
-        resolve({ records: normalizedRecords, errors: [] });
+        resolve({ records: validRecords, warnings, errors });
       },
       error: (error) => {
-        resolve({ records: [], errors: [`CSV parsing failed: ${error.message}`] });
+        resolve({ records: [], warnings: [], errors: [`CSV parsing failed: ${error.message}`] });
       },
     });
   });

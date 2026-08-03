@@ -112,9 +112,13 @@ export function UploadEvidence({
     setUploadResult(null);
 
     try {
-      const parsedUpload = await parseEvidenceUpload(file);
-      if (parsedUpload.errors.length > 0) {
-        setError(parsedUpload.errors.join('\n'));
+      const result = await parseEvidenceUpload(file);
+      console.log('Parse Result:', result);
+      console.log('Records:', result.records);
+      console.log('First Record:', result.records[0]);
+
+      if (result.errors.length > 0) {
+        setError(result.errors.join('\n'));
         setToast({
           type: 'error',
           message: 'Evidence validation failed.',
@@ -122,15 +126,25 @@ export function UploadEvidence({
         return;
       }
 
-      const formData = new FormData();
-      formData.append('file', file);
+      console.log('Uploading:', result.records);
+      console.log('API_BASE =', API_BASE);
 
-      const response = await fetch(`${API_BASE}/evidence/upload?scenario_id=${encodeURIComponent(scenarioId)}`, {
+      const requestUrl = `${API_BASE}/evidence/upload?scenario_id=${encodeURIComponent(scenarioId)}`;
+      console.log('Request URL:', requestUrl);
+
+      const payload = JSON.stringify(result.records, null, 2);
+      console.log('Payload:', payload);
+
+      const response = await fetch(requestUrl, {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: payload,
       });
 
       if (!response.ok) {
+        console.log('Backend Error:', response);
         const errorData = await response.json();
         throw new Error(errorData.detail || 'Upload failed');
       }
