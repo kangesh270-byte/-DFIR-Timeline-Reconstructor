@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { CloudUpload, CheckCircle2, AlertTriangle, Loader, X } from 'lucide-react';
 import { API_BASE } from '../api/axios';
 import { Scenario } from '../types';
+import { parseEvidenceUpload } from '../utils/evidenceUpload';
 
 interface UploadResponse {
   success: boolean;
@@ -111,6 +112,16 @@ export function UploadEvidence({
     setUploadResult(null);
 
     try {
+      const parsedUpload = await parseEvidenceUpload(file);
+      if (parsedUpload.errors.length > 0) {
+        setError(parsedUpload.errors.join('\n'));
+        setToast({
+          type: 'error',
+          message: 'Evidence validation failed.',
+        });
+        return;
+      }
+
       const formData = new FormData();
       formData.append('file', file);
 
