@@ -45,12 +45,35 @@ class EvidenceService:
                 "scenario_id": payload.scenarioId,
                 "title": payload.title,
             }
+
+            evidence_type = "General"
+            if payload.category is not None and str(payload.category).strip():
+                evidence_type = str(payload.category).strip()
+            else:
+                source_value = str(payload.source or "").strip().lower()
+                if "microsoft365" in source_value or "outlook" in source_value or "exchange" in source_value:
+                    evidence_type = "Email"
+                elif "sysmon" in source_value:
+                    evidence_type = "Sysmon"
+                elif "security" in source_value:
+                    evidence_type = "Windows Event"
+                elif "powershell" in source_value:
+                    evidence_type = "PowerShell"
+                elif "defender" in source_value:
+                    evidence_type = "Defender"
+                elif "firewall" in source_value:
+                    evidence_type = "Firewall"
+                elif "dns" in source_value:
+                    evidence_type = "DNS"
+                elif "proxy" in source_value:
+                    evidence_type = "Proxy"
+
+            row["evidence_type"] = evidence_type
+            print("Evidence Type:", evidence_type)
             
             # Add optional fields only if they have values, mapping to actual column names
             if payload.timestamp is not None:
                 row["event_time"] = payload.timestamp
-            if payload.category is not None:
-                row["evidence_type"] = payload.category
             if payload.severity is not None:
                 row["severity"] = payload.severity
             if payload.source is not None:
@@ -111,7 +134,18 @@ class EvidenceService:
             return self._normalize(row)
         except Exception as exc:
             logger.exception("Failed to create evidence in Supabase")
-            raise RuntimeError("Unable to create evidence in Supabase") from exc
+
+            print("\n========== FULL SUPABASE ERROR ==========")
+            print("Exception Type:", type(exc))
+            print("Exception:", str(exc))
+            print("Repr:", repr(exc))
+
+            if hasattr(exc, "args"):
+                print("ARGS:", exc.args)
+
+            print("=========================================\n")
+
+            raise RuntimeError(str(exc))
 
     async def update_evidence(self, evidence_id: str, payload: EvidenceUpdate) -> dict[str, Any] | None:
         try:

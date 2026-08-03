@@ -1,13 +1,42 @@
-import csv
-import json
+from uuid import UUID
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, HTTPException, status
 
-from ..schemas.evidence import EvidenceCreate, EvidenceOut, EvidenceUpdate
+from ..database.supabase import get_supabase_client
+from ..schemas.evidence import EvidenceCreate, EvidenceOut, EvidenceUpdate, EvidenceUploadRequest
 from ..services.evidence_service import EvidenceService
 
 router = APIRouter(prefix="/evidence", tags=["evidence"])
 service = EvidenceService()
+
+
+async def resolve_scenario_uuid(scenario_id: str | None) -> str:
+    if not scenario_id:
+        raise HTTPException(status_code=400, detail="scenario_id is required.")
+
+    value = str(scenario_id).strip()
+    try:
+        UUID(value)
+        return value
+    except ValueError:
+        pass
+
+    client = await get_supabase_client()
+    response = await client.table("scenarios").select("id,title").execute()
+    rows = response.data or []
+    match = next(
+        (
+            row
+            for row in rows
+            if str(row.get("title") or "").strip().lower() == value.lower()
+        ),
+        None,
+    )
+
+    if match is None or not match.get("id"):
+        raise HTTPException(status_code=400, detail=f"Unknown scenario_id or scenario name: {scenario_id}")
+
+    return str(match["id"])
 
 
 def infer_evidence_type(source: str) -> str:
@@ -56,98 +85,66 @@ async def create_evidence(payload: EvidenceCreate) -> EvidenceOut:
 
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
-async def upload_evidence(file: UploadFile = File(...), scenario_id: str | None = None) -> dict[str, object]:
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="A file must be uploaded.")
+async def upload_evidence(
+    payload: dict[str, object] | list[dict[str, object]] | None = None,
+    scenario_id: str | None = None,
+) -> dict[str, object]:
+    print("******** JSON UPLOAD ENDPOINT HIT ********")
+    print("Payload Type:", type(payload))
+    print("Payload:", payload)
 
-    if not scenario_id:
-        raise HTTPException(status_code=400, detail="scenario_id is required.")
+    resolved_scenario_id = await resolve_scenario_uuid(scenario_id)
+    print("Scenario Name:", scenario_id)
+    print("Scenario UUID:", resolved_scenario_id)
 
-    extension = file.filename.split('.')[-1].lower()
-    if extension not in {'csv', 'json'}:
-        raise HTTPException(status_code=400, detail="Unsupported file type. Only CSV and JSON are accepted.")
-
-    content = await file.read()
-
-    def validate_record(record: dict[str, object]) -> dict[str, object]:
-        required_fields = ['timestamp', 'title', 'description', 'severity', 'source']
-        parsed: dict[str, object] = {}
-
-        for field in required_fields:
-            if field not in record or record[field] is None or str(record[field]).strip() == '':
-                raise ValueError(f"Missing required field: {field}")
-            parsed[field] = str(record[field]).strip()
-
-        optional_fields = ['user', 'host', 'processName', 'fileName', 'fileHash', 'registryKey']
-        for field in optional_fields:
-            if field in record and record[field] is not None and str(record[field]).strip() != '':
-                parsed[field] = str(record[field]).strip()
-
-        # Handle category: use provided value or infer from source
-        if 'category' in record and record['category'] is not None and str(record['category']).strip() != '':
-            parsed['category'] = str(record['category']).strip()
-        else:
-            # Infer evidence_type from source field to ensure it's never null
-            parsed['category'] = infer_evidence_type(str(parsed['source']))
-
-        return parsed
-
-    records: list[dict[str, object]] = []
-    if extension == 'csv':
-        try:
-            decoded = content.decode('utf-8-sig')
-            rows = list(csv.DictReader(decoded.splitlines()))
-            for row in rows:
-                records.append(validate_record(row))
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"Invalid CSV file: {exc}") from exc
+    if isinstance(payload, dict) and 'records' in payload and isinstance(payload['records'], list):
+        raw_records = payload['records']
+    elif isinstance(payload, list):
+        raw_records = payload
     else:
-        try:
-            payload = json.loads(content.decode('utf-8'))
-            if isinstance(payload, list):
-                for item in payload:
-                    if not isinstance(item, dict):
-                        raise ValueError('Each item in the JSON array must be an object.')
-                    records.append(validate_record(item))
-            elif isinstance(payload, dict):
-                records.append(validate_record(payload))
-            else:
-                raise ValueError('JSON payload must be an object or array.')
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"Invalid JSON file: {exc}") from exc
+        raise HTTPException(status_code=422, detail="Request body must be a JSON array or an object with a 'records' array.")
 
-    # Save records to database
+    print("Records received:", len(raw_records))
+
+    if not raw_records:
+        raise HTTPException(status_code=400, detail="No evidence records were provided.")
+
     created_records: list[dict[str, object]] = []
     try:
-        for record in records:
-            payload = EvidenceCreate(
-                scenarioId=scenario_id,
-                title=record.get('title'),
-                timestamp=record.get('timestamp'),
-                description=record.get('description'),
-                severity=record.get('severity'),
-                source=record.get('source'),
-                category=record.get('category'),
-                user=record.get('user'),
-                host=record.get('host'),
-                processName=record.get('processName'),
-                fileName=record.get('fileName'),
-                fileHash=record.get('fileHash'),
-                registryKey=record.get('registryKey'),
-            )
-            created = await service.create_evidence(payload)
+        for record in raw_records:
+            if not isinstance(record, dict):
+                print("Validation Error:", record)
+                raise ValueError(f"Invalid record payload: {record}")
+
+            required_fields = ['timestamp', 'title', 'description', 'severity', 'source']
+            missing = [field for field in required_fields if field not in record or record[field] is None or str(record[field]).strip() == '']
+            if missing:
+                print("Validation Error:", record)
+                raise ValueError(f"Missing required field(s): {', '.join(missing)}")
+
+            normalized = {
+                **record,
+                'scenarioId': resolved_scenario_id,
+                'title': str(record['title']).strip(),
+                'timestamp': str(record['timestamp']).strip(),
+                'description': str(record['description']).strip(),
+                'severity': str(record['severity']).strip(),
+                'source': str(record['source']).strip(),
+            }
+            created = await service.create_evidence(EvidenceCreate(**normalized))
             created_records.append(created)
+    except ValueError as exc:
+        print("Validation Error:", exc)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to save evidence records: {str(exc)}") from exc
 
     return {
         "success": True,
-        "fileType": extension,
-        "recordsFound": len(records),
+        "fileType": "json",
+        "recordsFound": len(raw_records),
         "recordsCreated": len(created_records),
         "records": created_records,
     }

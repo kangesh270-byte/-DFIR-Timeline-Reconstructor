@@ -23,6 +23,10 @@ class EvidenceCreate(BaseModel):
     correctKillChain: str | None = None
 
 
+class EvidenceUploadRequest(BaseModel):
+    records: list[EvidenceCreate]
+
+
 class EvidenceUpdate(BaseModel):
     scenarioId: str | None = None
     title: str | None = None
