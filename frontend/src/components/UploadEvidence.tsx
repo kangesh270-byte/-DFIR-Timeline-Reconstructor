@@ -39,6 +39,7 @@ export function UploadEvidence({
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
+  const API_BASE = import.meta.env.VITE_API_URL || 'https://dfir-timeline-reconstructor-production.up.railway.app';
 
   useEffect(() => {
     setFile(selectedFile);
@@ -113,7 +114,7 @@ export function UploadEvidence({
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`http://localhost:9001/evidence/upload?scenario_id=${encodeURIComponent(scenarioId)}`, {
+      const response = await fetch(`${API_BASE}/evidence/upload?scenario_id=${encodeURIComponent(scenarioId)}`, {
         method: 'POST',
         body: formData,
       });
