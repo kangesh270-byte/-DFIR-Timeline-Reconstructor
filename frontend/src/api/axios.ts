@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'https://dfir-timeline-reconstructor-production.up.railway.app';
+export const API_BASE = import.meta.env.VITE_API_URL || 'https://dfir-timeline-reconstructor-production.up.railway.app';
 
 const api = axios.create({
   baseURL: API_BASE,

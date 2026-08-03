@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CloudUpload, CheckCircle2, AlertTriangle, Loader, X } from 'lucide-react';
+import { API_BASE } from '../api/axios';
 import { Scenario } from '../types';
 
 interface UploadResponse {
@@ -39,7 +40,6 @@ export function UploadEvidence({
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
-  const API_BASE = import.meta.env.VITE_API_URL || 'https://dfir-timeline-reconstructor-production.up.railway.app';
 
   useEffect(() => {
     setFile(selectedFile);
