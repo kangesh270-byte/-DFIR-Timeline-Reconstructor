@@ -129,15 +129,3 @@ Generate Report
 - React Documentation
 
 ---
-
-## 👨‍💻 Team
-
-# CYBER KNIGHTS
-
-**Innovating Digital Forensics & Cybersecurity**
-
----
-
-## ⭐ License
-
-This project is developed for educational and research purposes.
